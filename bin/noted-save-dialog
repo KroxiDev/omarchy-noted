@@ -1,0 +1,147 @@
+#!/usr/bin/python3 -I
+"""Return one local path chosen through the desktop SaveFile portal."""
+import argparse
+import json
+import os
+import re
+import secrets
+import sys
+import unicodedata
+from urllib.parse import unquote, urlsplit
+
+
+class DialogError(Exception):
+    pass
+
+
+def suggested_name(title, fallback_name="Note"):
+    line = next((line.strip() for line in title.splitlines() if line.strip()), '')
+    line = line.lstrip('#').strip()
+    line = ''.join('_' if char in '/\\:*?"<>|' or unicodedata.category(char).startswith('C')
+                   else char for char in line)
+    line = re.sub(r'\s+', ' ', line).strip(' .')
+    if line.lower().endswith('.md'):
+        line = line[:-3].rstrip(' .')
+    # Keep well below NAME_MAX, including multibyte UTF-8 characters.
+    line = line.encode('utf-8')[:200].decode('utf-8', errors='ignore').rstrip(' .')
+    return (line or fallback_name) + '.md'
+
+
+def local_path(uri):
+    if not isinstance(uri, str) or any(ord(c) < 32 for c in uri):
+        raise DialogError('dialog_invalid_path')
+    parsed = urlsplit(uri)
+    if (parsed.scheme != 'file' or parsed.netloc not in ('', 'localhost')
+            or parsed.query or parsed.fragment or not parsed.path.startswith('/')
+            or re.search(r'%(?![0-9a-fA-F]{2})', parsed.path)):
+        raise DialogError('choose_local')
+    try:
+        path = unquote(parsed.path, encoding='utf-8', errors='strict')
+    except UnicodeError as error:
+        raise DialogError('dialog_invalid_path') from error
+    if any(ord(c) < 32 or ord(c) == 127 for c in path):
+        raise DialogError('dialog_invalid_path')
+    return os.path.normpath(path)
+
+
+def response_path(code, results):
+    if code == 1:
+        raise DialogError('cancelled')
+    if code != 0:
+        raise DialogError('dialog_failed')
+    uris = results.get('uris') if isinstance(results, dict) else None
+    if not isinstance(uris, (list, tuple)) or len(uris) != 1:
+        raise DialogError('dialog_no_file')
+    return local_path(uris[0])
+
+
+def choose_file(title, directory, timeout_seconds=300, dialog_title="Save note as", fallback_name="Note"):
+    # Lazy import keeps validation tests independent of a running desktop/GI.
+    from gi.repository import Gio, GLib
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    portal = 'org.freedesktop.portal.Desktop'
+    interface = 'org.freedesktop.portal.Request'
+    token = 'noted_' + secrets.token_hex(16)
+    sender = bus.get_unique_name()[1:].replace('.', '_')
+    handle = '/org/freedesktop/portal/desktop/request/' + sender + '/' + token
+    loop = GLib.MainLoop()
+    outcome = {}
+
+    def received(connection, sender_name, object_path, interface_name, signal_name, params, data):
+        try:
+            outcome['path'] = response_path(*params.unpack())
+        except DialogError as error:
+            outcome['error'] = str(error)
+        except (ValueError, TypeError):
+            outcome['error'] = 'dialog_failed'
+        loop.quit()
+
+    def subscribe(path):
+        return bus.signal_subscribe(portal, interface, 'Response', path, None,
+                                    Gio.DBusSignalFlags.NONE, received, None)
+
+    subscription = subscribe(handle)  # Before SaveFile: even immediate replies are captured.
+    timer = None
+    timed_out = False
+
+    def expired():
+        nonlocal timed_out
+        timed_out = True
+        outcome['error'] = 'dialog_timeout'
+        loop.quit()
+        return GLib.SOURCE_REMOVE
+
+    try:
+        folder = os.fsencode(os.path.abspath(os.path.expanduser(directory))) + b'\0'
+        options = {'handle_token': GLib.Variant('s', token),
+                   'current_name': GLib.Variant('s', suggested_name(title, fallback_name)),
+                   'current_folder': GLib.Variant('ay', folder),
+                   'modal': GLib.Variant('b', False)}
+        result = bus.call_sync(portal, '/org/freedesktop/portal/desktop',
+                               'org.freedesktop.portal.FileChooser', 'SaveFile',
+                               GLib.Variant('(ssa{sv})', ('', dialog_title, options)),
+                               GLib.VariantType.new('(o)'), Gio.DBusCallFlags.NONE, 30000, None)
+        returned_handle = result.unpack()[0]
+        if returned_handle != handle:
+            bus.signal_unsubscribe(subscription)
+            handle = returned_handle
+            subscription = subscribe(handle)
+        if not outcome:
+            timer = GLib.timeout_add_seconds(timeout_seconds, expired)
+            loop.run()
+        if 'error' in outcome:
+            raise DialogError(outcome['error'])
+        return outcome['path']
+    finally:
+        bus.signal_unsubscribe(subscription)
+        if timer is not None and not timed_out:
+            GLib.source_remove(timer)
+        if timed_out:
+            try:
+                bus.call_sync(portal, handle, interface, 'Close', None, None,
+                              Gio.DBusCallFlags.NONE, 1000, None)
+            except GLib.Error:
+                pass
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--title', default='Note')
+    parser.add_argument('--dialog-title', default='Save note as')
+    parser.add_argument('--fallback-name', default='Note')
+    parser.add_argument('--directory', default=os.path.expanduser('~/Documents'))
+    args = parser.parse_args(argv)
+    try:
+        path = choose_file(args.title, args.directory, dialog_title=args.dialog_title, fallback_name=args.fallback_name)
+    except DialogError as error:
+        print(json.dumps({'error': str(error)}), file=sys.stderr)
+        return 1
+    except Exception:
+        print(json.dumps({'error': 'dialog_missing'}), file=sys.stderr)
+        return 2
+    print(path)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

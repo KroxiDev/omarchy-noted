@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "krox.noted",
+  "name": "Noted",
+  "version": "1.0.0",
+  "author": "KroxiDev",
+  "license": "MIT",
+  "description": "Quick Markdown notes with autosave, drafts, and one file per note.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Noted",
+    "description": "Quick notes with autosave and Trash recovery.",
+    "category": "Productivity",
+    "defaultSection": "center",
+    "allowMultiple": false,
+    "defaults": {
+      "language": "auto",
+      "folder": ""
+    },
+    "schema": [
+      {
+        "key": "language",
+        "type": "enum",
+        "label": "Language",
+        "options": [
+          "auto",
+          "en",
+          "es"
+        ],
+        "defaultValue": "auto"
+      },
+      {
+        "key": "folder",
+        "type": "path",
+        "label": "Notes folder",
+        "defaultValue": "",
+        "description": "Empty uses the Noted folder in your Documents directory. Changing folders does not move notes."
+      }
+    ]
+  }
+}
