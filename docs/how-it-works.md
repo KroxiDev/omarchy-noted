@@ -158,6 +158,20 @@ than English or Spanish falls back to English. Regional variants such as
 | `bin/noted-save-dialog` | Opens the portal's Save dialog and prints the chosen path |
 | `tests/` | Automated tests |
 
+Run the checks from the repository root on Omarchy:
+
+```sh
+omarchy plugin validate .
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+node tests/test_logic.cjs
+bash tests/test_fileview.sh
+```
+
+The FileView check uses offscreen Qt and temporary files. Run it as a regular
+user so its permission checks are meaningful. None of these tests use your notes.
+GitHub Actions runs the same checks in an Arch Linux container on pushes and
+pull requests, using Arch's Quickshell package and a pinned Omarchy validator.
+
 Notes for changes:
 
 - `bin/noted-store` operations: `init`, `list`, `allocate`, `info`, `trash`,

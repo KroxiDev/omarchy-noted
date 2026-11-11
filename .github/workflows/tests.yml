@@ -1,0 +1,56 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    container: archlinux:base
+    timeout-minutes: 15
+    steps:
+      - name: Install test dependencies
+        run: pacman -Syu --noconfirm --needed git jq python nodejs quickshell
+
+      - name: Check out Noted
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Check out the Omarchy manifest validator
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: omacom/omarchy
+          ref: 7a9a1e930921f8d18db98e189a6280e6b1c0cc32
+          path: .ci-omarchy
+          sparse-checkout: /bin/omarchy-plugin-validate
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Validate the plugin
+        run: bash .ci-omarchy/bin/omarchy-plugin-validate .
+
+      - name: Test storage and file dialog
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Test language and multiple bars
+        run: node tests/test_logic.cjs
+
+      - name: Test Quickshell persistence without root privileges
+        run: |
+          useradd --create-home noted-test
+          runuser -u noted-test -- bash tests/test_fileview.sh
+
