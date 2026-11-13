@@ -1,6 +1,5 @@
 #!/usr/bin/python3 -I
-"""Return one local path chosen through the desktop SaveFile portal."""
-import argparse
+"""Read one JSON request on stdin; return a path from the desktop SaveFile portal."""
 import json
 import os
 import re
@@ -124,17 +123,18 @@ def choose_file(title, directory, timeout_seconds=300, dialog_title="Save note a
                 pass
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--title', default='Note')
-    parser.add_argument('--dialog-title', default='Save note as')
-    parser.add_argument('--fallback-name', default='Note')
-    parser.add_argument('--directory', default=os.path.expanduser('~/Documents'))
-    args = parser.parse_args(argv)
+def main():
     try:
-        path = choose_file(args.title, args.directory, dialog_title=args.dialog_title, fallback_name=args.fallback_name)
-    except DialogError as error:
-        print(json.dumps({'error': str(error)}), file=sys.stderr)
+        request = json.load(sys.stdin)
+        if not isinstance(request, dict) or not all(isinstance(request.get(key), str) for key in
+                ('title', 'directory', 'dialog_title', 'fallback_name')):
+            raise DialogError('dialog_failed')
+        path = choose_file(request['title'], request['directory'],
+                           dialog_title=request['dialog_title'], fallback_name=request['fallback_name'])
+    except (DialogError, json.JSONDecodeError, UnicodeError) as error:
+        # Never include the request or a JSON parser's diagnostic in error output.
+        key = str(error) if isinstance(error, DialogError) else 'dialog_failed'
+        print(json.dumps({'error': key}), file=sys.stderr)
         return 1
     except Exception:
         print(json.dumps({'error': 'dialog_missing'}), file=sys.stderr)

@@ -441,15 +441,22 @@ Item {
         id: dialogDelay
         interval: 210
         onTriggered: {
-            dialog.command = [root.dialogHelper, "--title", root.titleFor(editor.text), "--directory", root.directory, "--dialog-title", i18n.t("save_dialog_title"), "--fallback-name", i18n.t("note_name")]
+            dialog.stdinEnabled = true
             dialog.didStart = false
             dialog.running = true
         }
     }
     Process {
         id: dialog
+        command: [root.dialogHelper]
         property bool didStart: false
-        onStarted: didStart = true
+        onStarted: {
+            didStart = true
+            // Note text must never appear in the process's command-line arguments.
+            write(JSON.stringify({title: root.titleFor(root.dialogText), directory: root.directory,
+                                  dialog_title: i18n.t("save_dialog_title"), fallback_name: i18n.t("note_name")}))
+            stdinEnabled = false
+        }
         onRunningChanged: {
             if (!running) Qt.callLater(function() {
                 if (!dialog.running && !dialog.didStart && root.dialogOpen) {

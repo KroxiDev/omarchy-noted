@@ -155,7 +155,7 @@ than English or Spanish falls back to English. Regional variants such as
 | `Session.js` | Coordinates copies on several bars: one window at a time, one command owner, shared undo |
 | `Strings.qml`, `Locale.js`, `i18n/*.json` | Translations and language choice |
 | `bin/noted-store` | Python helper for every file operation. Reads one JSON request on stdin and prints one JSON reply |
-| `bin/noted-save-dialog` | Opens the portal's Save dialog and prints the chosen path |
+| `bin/noted-save-dialog` | Reads one JSON request on stdin, opens the portal's Save dialog and prints the chosen path |
 | `tests/` | Automated tests |
 
 Run the checks from the repository root on Omarchy:
@@ -169,11 +169,18 @@ bash tests/test_fileview.sh
 
 The FileView check uses offscreen Qt and temporary files. Run it as a regular
 user so its permission checks are meaningful. None of these tests use your notes.
+The dialog transport test needs `python-gobject`, `dbus-run-session` and Quickshell.
+It runs the chooser's QML process offscreen against an isolated test portal,
+checking title privacy, cancellation, saving and consecutive openings.
 GitHub Actions runs the same checks in an Arch Linux container on pushes and
 pull requests, using Arch's Quickshell package and a pinned Omarchy validator.
 
 Notes for changes:
 
+- The save dialog request contains the strings `title`, `directory`,
+  `dialog_title` and `fallback_name`. Send it over stdin and close the pipe;
+  note text must never be passed as process arguments. The title comes from
+  the same snapshot used to save the note.
 - `bin/noted-store` operations: `init`, `list`, `allocate`, `info`, `trash`,
   `restore`, `save-as`. It also accepts `trash-file <path> [folder]` as
   arguments, used during shutdown. Errors come back as keys that match entries
