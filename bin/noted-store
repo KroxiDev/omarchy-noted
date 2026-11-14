@@ -30,9 +30,12 @@ class Store:
         self.drafts = self.state / 'drafts'
         if self.directory == self.state or self.state in self.directory.parents:
             raise ValueError('internal_destination')
-        for path in (self.directory, self.state, self.drafts):
+        self.safe_path(self.directory).mkdir(parents=True, exist_ok=True)
+        # FileView uses the shell's umask for drafts/recovery; keep their parents private.
+        for path in (self.state, self.drafts):
             self.safe_path(path)
-            path.mkdir(parents=True, exist_ok=True)
+            path.mkdir(mode=0o700, parents=True, exist_ok=True)
+            path.chmod(0o700)  # Also secure directories from older installations.
 
     @staticmethod
     def safe_path(raw):

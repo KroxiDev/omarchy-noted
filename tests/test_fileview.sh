@@ -37,3 +37,4 @@ if grep -q 'NOTED_TEST_FAIL' "$fixture/log" || \
   exit 1
 fi
 echo "PASS: failed retry, permission recovery, repeated save, and destruction persistence."
+python3 "$test_dir/fileview_privacy.py"

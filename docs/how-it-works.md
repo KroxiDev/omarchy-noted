@@ -28,6 +28,10 @@ There are two kinds of notes:
 - **Saved notes.** After **Ctrl+S** a note is a regular file wherever you chose.
   Noted edits that file directly. There are no hidden copies.
 
+Noted's state and drafts directories are accessible only to your account
+(`0700`), including on existing installations. This protects drafts and recovery
+copies even when your shell's default file permissions allow other users to read.
+
 The notes folder is the `folder` setting. When it's empty, Noted uses
 `Noted` inside your Documents folder (found with `xdg-user-dir DOCUMENTS`, or
 `~/Documents` when that's unavailable). Paths may start with `~`.
@@ -169,6 +173,8 @@ bash tests/test_fileview.sh
 
 The FileView check uses offscreen Qt and temporary files. Run it as a regular
 user so its permission checks are meaningful. None of these tests use your notes.
+It also checks draft privacy and recovery after a failed shutdown save, with
+permissive default permissions and both new and existing state directories.
 The dialog transport test needs `python-gobject`, `dbus-run-session` and Quickshell.
 It runs the chooser's QML process offscreen against an isolated test portal,
 checking title privacy, cancellation, saving and consecutive openings.

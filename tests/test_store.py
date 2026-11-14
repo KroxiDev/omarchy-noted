@@ -4,6 +4,7 @@ import io
 import json
 import multiprocessing
 from pathlib import Path
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -84,6 +85,56 @@ class StoreTests(unittest.TestCase):
         for folder in (self.store.state, self.store.drafts, self.store.drafts / 'child'):
             with self.assertRaises(ValueError):
                 module.Store(self.store.documents, self.store.state, self.gio, folder=folder)
+
+    def test_state_is_private_with_permissive_umask(self):
+        for mask in (0o022, 0o000):
+            with self.subTest(umask=mask):
+                base = self.root / f'mask-{mask}'
+                previous = module.os.umask(mask)
+                try:
+                    store = module.Store(base / 'Documents', base / 'state' / 'noted', self.gio)
+                finally:
+                    module.os.umask(previous)
+                for directory in (store.state, store.drafts):
+                    self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
+                self.assertEqual(stat.S_IMODE(store.directory.stat().st_mode), 0o777 & ~mask)
+
+    def test_existing_state_becomes_private_without_changing_notes_folder(self):
+        self.store.state.chmod(0o755)
+        self.store.drafts.chmod(0o755)
+        self.store.directory.chmod(0o750)
+        draft = self.store.drafts / 'existing.md'
+        draft.write_text('existing private content')
+        draft.chmod(0o644)
+        restarted = module.Store(self.store.documents, self.store.state, self.gio)
+        for directory in (restarted.state, restarted.drafts):
+            self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(restarted.directory.stat().st_mode), 0o750)
+        self.assertEqual(draft.read_text(), 'existing private content')
+
+    def test_state_permission_failure_prevents_allocation(self):
+        state = self.root / 'cannot-secure'
+        state.mkdir(mode=0o755)
+        with patch.object(Path, 'chmod', side_effect=PermissionError('cannot secure state')):
+            with self.assertRaises(PermissionError):
+                module.Store(self.store.documents, state, self.gio).execute({'op': 'allocate'})
+        self.assertFalse((state / 'catalog.json').exists())
+
+    def test_state_symlinks_do_not_change_target_permissions(self):
+        target = self.root / 'symlink-target'
+        target.mkdir()
+        target.chmod(0o755)
+        for component in ('state', 'drafts'):
+            with self.subTest(component=component):
+                state = self.root / f'linked-{component}'
+                if component == 'state':
+                    state.symlink_to(target, target_is_directory=True)
+                else:
+                    state.mkdir()
+                    (state / 'drafts').symlink_to(target, target_is_directory=True)
+                with self.assertRaisesRegex(ValueError, 'no_symlinks'):
+                    module.Store(self.store.documents, state, self.gio)
+                self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o755)
 
     def test_draft_allocate_lazy_persist_restart_and_association(self):
         allocated = self.call('allocate')
